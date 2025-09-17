@@ -88,12 +88,7 @@ const Login: React.FC = () => {
                             {isLoading ? 'Masuk...' : 'Masuk'}
                         </button>
                     </div>
-                </form>
-                 <div className="text-center mt-6 text-sm text-gray-400">
-                    <p>Admin: admin@example.com / password</p>
-                    <p>Staff: staff@example.com / password</p>
-                    <p>Viewer: viewer@example.com / password</p>
-                </div>
+                </form>                
             </Card>
         </div>
     );
