@@ -24,7 +24,7 @@ const NavButton: React.FC<NavButtonProps> = ({ label, section, activeSection, on
 interface HeaderProps {
     activeSection: Section;
     setActiveSection: (section: Section) => void;
-    onLogout: () => void;
+    onLogout: () => Promise<any>;
     userRole?: UserRole;
 }
 
@@ -47,10 +47,24 @@ const ROLE_PERMISSIONS: Record<UserRole, Section[]> = {
 
 const Header: React.FC<HeaderProps> = ({ activeSection, setActiveSection, onLogout, userRole }) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
 
     const handleNavClick = (section: Section) => {
         setActiveSection(section);
         setIsMenuOpen(false);
+    };
+
+    const handleLogout = async () => {
+        setIsLoggingOut(true);
+        try {
+            await onLogout();
+            // The auth state listener in DataContext will handle the redirect.
+        } catch (error) {
+            console.error("Logout failed:", error);
+            alert("Gagal untuk logout. Silakan coba lagi.");
+            setIsLoggingOut(false); // Reset state only on failure
+        }
+        // On success, the component will unmount, so no need to reset state.
     };
 
     const availableNavItems = useMemo(() => {
@@ -72,8 +86,12 @@ const Header: React.FC<HeaderProps> = ({ activeSection, setActiveSection, onLogo
                         </h1>
                     </div>
                      <div className="flex items-center space-x-4">
-                        <button onClick={onLogout} className="hidden md:block text-sm text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md transition-colors">
-                            Logout
+                        <button 
+                            onClick={handleLogout}
+                            disabled={isLoggingOut}
+                            className="hidden md:block text-sm text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {isLoggingOut ? 'Keluar...' : 'Logout'}
                         </button>
                         <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="md:hidden text-white p-2">
                             {isMenuOpen ? '✕' : '☰'}
@@ -86,8 +104,12 @@ const Header: React.FC<HeaderProps> = ({ activeSection, setActiveSection, onLogo
                             <NavButton key={item.section} {...item} activeSection={activeSection} onClick={handleNavClick} />
                         ))}
                          {/* Tombol Logout untuk tampilan mobile */}
-                        <button onClick={onLogout} className="md:hidden w-full text-left px-4 py-3 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors mt-2">
-                           Logout
+                        <button 
+                            onClick={handleLogout}
+                            disabled={isLoggingOut}
+                            className="md:hidden w-full text-left px-4 py-3 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors mt-2 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                           {isLoggingOut ? 'Keluar...' : 'Logout'}
                         </button>
                     </div>
                 </nav>
