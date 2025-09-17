@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { Account, Transaction, Asset, CompanySettings, TaxSettings, JournalEntry } from '../types';
 import * as api from '../services/supabase';

@@ -2,7 +2,7 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="UTF--8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FinanceFlow Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -52,6 +52,84 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #6366f1;
         }
+
+        /* Print-specific styles */
+        @media print {
+            body {
+                background: #fff !important;
+                color: #000 !important;
+                font-family: Arial, sans-serif;
+                font-size: 10pt;
+            }
+            header, .no-print {
+                display: none !important;
+            }
+            main {
+              padding: 0 !important;
+              max-width: 100% !important;
+            }
+            .printable-area {
+                display: block !important;
+                visibility: visible !important;
+                position: absolute;
+                top: 20px;
+                left: 20px;
+                right: 20px;
+            }
+            .print-header {
+                display: block !important;
+                text-align: center;
+                margin-bottom: 2rem;
+                border-bottom: 2px solid #000;
+                padding-bottom: 1rem;
+            }
+             .print-header h1 {
+                font-size: 1.5rem;
+                font-weight: bold;
+                color: #000;
+             }
+             .print-header h2 {
+                font-size: 1.2rem;
+                color: #000;
+             }
+             .print-header p {
+                font-size: 0.9rem;
+                color: #333;
+             }
+            .printable-area .card-hover {
+              background: none !important;
+              backdrop-filter: none !important;
+              border: none !important;
+              box-shadow: none !important;
+              padding: 0 !important;
+            }
+            .printable-area h3, .printable-area h4 {
+                color: #000 !important;
+                border-color: #ccc !important;
+            }
+            .printable-area span, .printable-area p {
+                color: #000 !important;
+            }
+            .printable-area .grid {
+                display: block !important;
+            }
+             .printable-area .lg\:grid-cols-2 > div {
+                width: 100%;
+                margin-bottom: 2rem;
+            }
+            .printable-area .font-mono {
+                font-family: 'Courier New', Courier, monospace;
+            }
+            .printable-area div[class*="bg-slate"] {
+                background: none !important;
+            }
+             .printable-area div[class*="border-t"] {
+                border-color: #000 !important;
+            }
+            .printable-area div[class*="border-b"] {
+                border-color: #eee !important;
+            }
+        }
     </style>
   <script type="importmap">
 {
@@ -59,10 +137,12 @@
     "react/": "https://aistudiocdn.com/react@^19.1.1/",
     "react": "https://aistudiocdn.com/react@^19.1.1",
     "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
-    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.57.4"
+    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.57.4",
+    "xlsx": "https://aistudiocdn.com/xlsx@^0.18.5"
   }
 }
 </script>
+<script type="module" src="/src/index.tsx"></script>
 </head>
   <body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 min-h-screen text-white">
     <div id="root"></div>

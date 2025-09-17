@@ -2,7 +2,6 @@
 import React, { useState, useMemo } from 'react';
 import Card from '../components/Card';
 import { useData } from '../contexts/DataContext';
-// FIX: Added 'formatDate' to the import from '../utils/helpers' to resolve 'Cannot find name' errors.
 import { formatCurrency, formatDate } from '../utils/helpers';
 import type { Account, Transaction } from '../types';
 
@@ -104,12 +103,16 @@ const BalanceSheet: React.FC<{ data: ReportData, period: { end: string } }> = ({
 
 
 const Reports: React.FC = () => {
-    const { accounts, transactions, loading, error } = useData();
+    const { accounts, transactions, companySettings, loading, error } = useData();
     const [activeTab, setActiveTab] = useState<'income' | 'balance'>('income');
     const [period, setPeriod] = useState(getYearRange());
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setPeriod(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    };
+
+    const handlePrint = () => {
+        window.print();
     };
 
     const reportData = useMemo((): ReportData | null => {
@@ -203,37 +206,56 @@ const Reports: React.FC = () => {
     );
 
     return (
-        <Card>
-            <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
-                 <h2 className="text-2xl md:text-3xl font-bold">Laporan Keuangan</h2>
-                <div className="flex items-center space-x-2">
-                    <TabButton tab="income" label="Laporan Laba Rugi" />
-                    <TabButton tab="balance" label="Neraca" />
+        <div className="printable-area">
+            <Card>
+                <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 no-print">
+                     <h2 className="text-2xl md:text-3xl font-bold">Laporan Keuangan</h2>
+                    <div className="flex items-center space-x-2">
+                        <TabButton tab="income" label="Laporan Laba Rugi" />
+                        <TabButton tab="balance" label="Neraca" />
+                    </div>
                 </div>
-            </div>
-            
-             <div className="mb-6 p-4 bg-slate-800/50 rounded-lg grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-                <div className="md:col-span-1">
-                    <label htmlFor="start" className="block text-sm font-medium text-gray-300 mb-1">Periode Mulai</label>
-                    <input type="date" name="start" id="start" value={period.start} onChange={handleDateChange} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2" />
+                
+                 <div className="mb-6 p-4 bg-slate-800/50 rounded-lg grid grid-cols-1 md:grid-cols-3 gap-4 items-end no-print">
+                    <div className="md:col-span-1">
+                        <label htmlFor="start" className="block text-sm font-medium text-gray-300 mb-1">Periode Mulai</label>
+                        <input type="date" name="start" id="start" value={period.start} onChange={handleDateChange} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2" />
+                    </div>
+                    <div className="md:col-span-1">
+                        <label htmlFor="end" className="block text-sm font-medium text-gray-300 mb-1">Periode Selesai</label>
+                        <input type="date" name="end" id="end" value={period.end} onChange={handleDateChange} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2" />
+                    </div>
+                    <div className="md:col-span-1 flex justify-end">
+                         <button onClick={handlePrint} className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-6 rounded-lg w-full md:w-auto">
+                            Cetak Laporan
+                        </button>
+                    </div>
                 </div>
-                <div className="md:col-span-1">
-                    <label htmlFor="end" className="block text-sm font-medium text-gray-300 mb-1">Periode Selesai</label>
-                    <input type="date" name="end" id="end" value={period.end} onChange={handleDateChange} className="w-full bg-slate-700 border border-slate-600 rounded-md p-2" />
-                </div>
-                {/* Could add a 'Generate' button here if needed */}
-            </div>
 
-            {loading && <div className="text-center py-8">Memuat data laporan...</div>}
-            {error && <div className="text-center py-8 text-red-400">Error: {error}</div>}
-            {!loading && !error && !reportData && <div className="text-center py-8 text-yellow-400">Harap pilih rentang tanggal yang valid.</div>}
+                {loading && <div className="text-center py-8 no-print">Memuat data laporan...</div>}
+                {error && <div className="text-center py-8 text-red-400 no-print">Error: {error}</div>}
+                {!loading && !error && !reportData && <div className="text-center py-8 text-yellow-400 no-print">Harap pilih rentang tanggal yang valid.</div>}
 
-            {!loading && !error && reportData && (
-                <div>
-                    {activeTab === 'income' ? <IncomeStatement data={reportData} period={period} /> : <BalanceSheet data={reportData} period={period} />}
+                {/* This is the content that will be printed */}
+                <div id="report-content">
+                    <div className="print-header hidden">
+                        <h1>{companySettings.name}</h1>
+                        <h2>{activeTab === 'income' ? 'Laporan Laba Rugi' : 'Neraca'}</h2>
+                        <p>
+                            {activeTab === 'income'
+                                ? `Untuk Periode ${formatDate(period.start)} s/d ${formatDate(period.end)}`
+                                : `Per ${formatDate(period.end)}`}
+                        </p>
+                    </div>
+                    {!loading && !error && reportData && (
+                        <div>
+                            {activeTab === 'income' ? <IncomeStatement data={reportData} period={period} /> : <BalanceSheet data={reportData} period={period} />}
+                        </div>
+                    )}
                 </div>
-            )}
-        </Card>
+
+            </Card>
+        </div>
     );
 };
 
