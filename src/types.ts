@@ -64,3 +64,12 @@ export interface TaxSettings {
     taxPayableAccount: string;
     autoCreateTaxEntry: boolean;
 }
+
+// --- Tipe Baru untuk Auth ---
+export type UserRole = 'admin' | 'staff' | 'viewer';
+
+export interface Profile {
+    id: string;
+    role: UserRole;
+    // Anda bisa menambahkan bidang lain seperti 'full_name', 'avatar_url' di sini
+}

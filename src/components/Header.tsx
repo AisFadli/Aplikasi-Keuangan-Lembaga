@@ -1,6 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { Section } from '../App';
+import type { UserRole } from '../types';
 
 interface NavButtonProps {
     label: string;
@@ -23,9 +24,28 @@ const NavButton: React.FC<NavButtonProps> = ({ label, section, activeSection, on
 interface HeaderProps {
     activeSection: Section;
     setActiveSection: (section: Section) => void;
+    onLogout: () => void;
+    userRole?: UserRole;
 }
 
-const Header: React.FC<HeaderProps> = ({ activeSection, setActiveSection }) => {
+const ALL_NAV_ITEMS: { label: string; section: Section }[] = [
+    { label: 'Dashboard', section: 'dashboard' },
+    { label: 'Transaksi', section: 'transactions' },
+    { label: 'Buku Besar', section: 'ledger' },
+    { label: 'Akun', section: 'accounts' },
+    { label: 'Rekonsiliasi Bank', section: 'reconciliation' },
+    { label: 'Aset', section: 'assets' },
+    { label: 'Laporan', section: 'reports' },
+    { label: 'Pengaturan', section: 'settings' },
+];
+
+const ROLE_PERMISSIONS: Record<UserRole, Section[]> = {
+    admin: ['dashboard', 'transactions', 'ledger', 'accounts', 'reconciliation', 'assets', 'reports', 'settings'],
+    staff: ['dashboard', 'transactions', 'ledger', 'accounts', 'reconciliation', 'assets'],
+    viewer: ['dashboard', 'reports'],
+};
+
+const Header: React.FC<HeaderProps> = ({ activeSection, setActiveSection, onLogout, userRole }) => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
 
     const handleNavClick = (section: Section) => {
@@ -33,19 +53,14 @@ const Header: React.FC<HeaderProps> = ({ activeSection, setActiveSection }) => {
         setIsMenuOpen(false);
     };
 
-    const navItems: { label: string; section: Section }[] = [
-        { label: 'Dashboard', section: 'dashboard' },
-        { label: 'Transaksi', section: 'transactions' },
-        { label: 'Buku Besar', section: 'ledger' },
-        { label: 'Akun', section: 'accounts' },
-        { label: 'Rekonsiliasi Bank', section: 'reconciliation' },
-        { label: 'Aset', section: 'assets' },
-        { label: 'Laporan', section: 'reports' },
-        { label: 'Pengaturan', section: 'settings' },
-    ];
+    const availableNavItems = useMemo(() => {
+        if (!userRole) return [];
+        const allowed = ROLE_PERMISSIONS[userRole] || [];
+        return ALL_NAV_ITEMS.filter(item => allowed.includes(item.section));
+    }, [userRole]);
 
     return (
-        <header className="glass-effect p-4 mb-4 md:mb-8 sticky top-0 z-50 no-print">
+        <header className="glass-effect p-4 mb-4 md:mb-8 sticky top-0 z-50">
             <div className="max-w-7xl mx-auto">
                 <div className="flex justify-between items-center">
                     <div className="flex items-center space-x-3">
@@ -56,15 +71,24 @@ const Header: React.FC<HeaderProps> = ({ activeSection, setActiveSection }) => {
                             FinanceFlow Pro
                         </h1>
                     </div>
-                    <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="md:hidden text-white p-2">
-                        {isMenuOpen ? '✕' : '☰'}
-                    </button>
+                     <div className="flex items-center space-x-4">
+                        <button onClick={onLogout} className="hidden md:block text-sm text-gray-300 hover:text-white hover:bg-white/10 px-3 py-2 rounded-md transition-colors">
+                            Logout
+                        </button>
+                        <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="md:hidden text-white p-2">
+                            {isMenuOpen ? '✕' : '☰'}
+                        </button>
+                    </div>
                 </div>
                 <nav className={`${isMenuOpen ? 'block' : 'hidden'} md:flex md:justify-center md:space-x-4 mt-4 md:mt-0`}>
                     <div className="flex flex-col md:flex-row space-y-2 md:space-y-0 md:space-x-2 w-full md:w-auto">
-                        {navItems.map(item => (
+                        {availableNavItems.map(item => (
                             <NavButton key={item.section} {...item} activeSection={activeSection} onClick={handleNavClick} />
                         ))}
+                         {/* Tombol Logout untuk tampilan mobile */}
+                        <button onClick={onLogout} className="md:hidden w-full text-left px-4 py-3 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors mt-2">
+                           Logout
+                        </button>
                     </div>
                 </nav>
             </div>
