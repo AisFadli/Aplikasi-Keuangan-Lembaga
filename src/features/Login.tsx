@@ -43,7 +43,8 @@ const Login: React.FC = () => {
                     <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
                         FinanceFlow Pro
                     </h1>
-                    <p className="text-gray-400 mt-2">Masukkan kredensial Anda untuk mengakses dasbor.</p>
+                    <p className="text-gray-400 mt-2">Selamat Datang, Silahkan Login terlebih dahulu.</p>
+                    <p className="text-gray-400 mt-2">Bismillah.</p>
                 </div>
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div>
