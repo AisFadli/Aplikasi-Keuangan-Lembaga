@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
@@ -403,9 +402,15 @@ const Assets: React.FC = () => {
                             {filteredAssets.length > 0 ? (
                                 filteredAssets.map(asset => {
                                     const bookValue = asset.cost - asset.accumulated_depreciation;
+                                    const needsSetup = asset.is_depreciable && !asset.life;
                                     return (
-                                        <tr key={asset.id} className="border-b border-gray-700 hover:bg-slate-800/50">
-                                            <td className="py-3 px-4">{asset.name}</td>
+                                        <tr key={asset.id} className={`border-b border-gray-700 hover:bg-slate-800/50 ${needsSetup ? 'bg-yellow-500/10' : ''}`}>
+                                            <td className="py-3 px-4">
+                                                {asset.name}
+                                                {needsSetup && (
+                                                    <span title="Detail penyusutan perlu diatur" className="ml-2 text-yellow-400 cursor-help">⚠️</span>
+                                                )}
+                                            </td>
                                             <td className="py-3 px-4 text-gray-300">{asset.category}</td>
                                             <td className="py-3 px-4">{formatDate(asset.date)}</td>
                                             <td className="py-3 px-4 text-right font-mono">{formatCurrency(asset.cost)}</td>

@@ -1,10 +1,11 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Card from '../components/Card';
 import Modal from '../components/Modal';
 import { useData } from '../contexts/DataContext';
 import { formatDate, formatCurrency, getTodayDateString } from '../utils/helpers';
 import type { Transaction, JournalEntry, Account } from '../types';
+import * as XLSX from 'xlsx';
 
 // Type for the form state
 type TransactionFormData = {
@@ -251,14 +252,87 @@ export const TransactionForm: React.FC<{
     );
 };
 
+const ImportStatusModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    status: 'parsing' | 'preview' | 'importing' | 'success' | 'error';
+    data: any[]; // The parsed data for preview
+    errors: string[];
+    onConfirm: () => void;
+}> = ({ isOpen, onClose, status, data, errors, onConfirm }) => {
+
+    const renderContent = () => {
+        switch (status) {
+            case 'parsing':
+                return <div className="text-center"><div className="w-8 h-8 mx-auto border-4 border-dashed rounded-full animate-spin border-primary mb-4"></div><p>Menganalisis file...</p></div>;
+            case 'importing':
+                return <div className="text-center"><div className="w-8 h-8 mx-auto border-4 border-dashed rounded-full animate-spin border-primary mb-4"></div><p>Mengimpor transaksi, jangan tutup jendela ini...</p></div>;
+            case 'preview':
+                return (
+                    <div>
+                        <p className="mb-4">Ditemukan <strong>{data.length}</strong> transaksi yang valid dan siap untuk diimpor.</p>
+                        <div className="max-h-60 overflow-y-auto border border-slate-700 rounded-lg p-2 bg-slate-900 text-xs">
+                            <pre>{JSON.stringify(data.map(d => ({ Tanggal: d.transaction.date, Deskripsi: d.transaction.description, Jumlah: d.entries[0].debit })), null, 2)}</pre>
+                        </div>
+                    </div>
+                );
+            case 'success':
+                return <div className="text-center text-green-400"><p className="text-2xl mb-2">✓</p><p>Berhasil!</p><p>{data.length} transaksi telah berhasil diimpor.</p></div>;
+            case 'error':
+                 return (
+                    <div>
+                        <p className="mb-2 text-red-400 font-bold">Terjadi kesalahan. {errors.length > 0 ? `${errors.length} baris tidak valid.` : 'Proses impor gagal.'}</p>
+                        <div className="max-h-60 overflow-y-auto border border-red-500/50 rounded-lg p-2 bg-red-500/10 text-xs text-red-300">
+                            <ul className="list-disc pl-4">
+                                {errors.slice(0, 10).map((err, i) => <li key={i}>{err}</li>)}
+                                {errors.length > 10 && <li>...dan {errors.length - 10} kesalahan lainnya.</li>}
+                            </ul>
+                        </div>
+                    </div>
+                );
+            default:
+                return null;
+        }
+    }
+
+    const renderFooter = () => {
+        switch (status) {
+            case 'preview':
+                return (
+                    <>
+                        <button onClick={onClose} className="py-2 px-4 rounded-md bg-slate-600 hover:bg-slate-500">Batal</button>
+                        <button onClick={onConfirm} className="py-2 px-4 rounded-md bg-primary hover:bg-primary/80">Konfirmasi & Impor</button>
+                    </>
+                );
+            case 'success':
+            case 'error':
+                 return <button onClick={onClose} className="py-2 px-4 rounded-md bg-slate-600 hover:bg-slate-500">Tutup</button>;
+            default:
+                return <button onClick={onClose} disabled className="py-2 px-4 rounded-md bg-slate-600 opacity-50">Batal</button>;
+        }
+    }
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title="Impor Transaksi Massal" footer={renderFooter()}>
+            {renderContent()}
+        </Modal>
+    );
+};
+
 
 const Transactions: React.FC = () => {
-    const { transactions, loading, error, deleteTransaction } = useData();
+    const { transactions, loading, error, deleteTransaction, addBulkTransactions, accounts } = useData();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [importStatus, setImportStatus] = useState<'parsing' | 'preview' | 'importing' | 'success' | 'error'>('parsing');
+    const [importData, setImportData] = useState<any[]>([]);
+    const [importErrors, setImportErrors] = useState<string[]>([]);
 
     const filteredTransactions = useMemo(() => {
         return transactions.filter(tx => {
@@ -293,13 +367,136 @@ const Transactions: React.FC = () => {
         }
     };
 
+    const handleDownloadTemplate = () => {
+        const exampleData = [
+            { 'Tanggal': '2024-01-15', 'Deskripsi': 'Pembelian ATK', 'Ref': 'INV-101', 'KodeAkunDebit': '5200', 'KodeAkunKredit': '1100', 'Jumlah': 500000 },
+            { 'Tanggal': '2024-01-16', 'Deskripsi': 'Pendapatan Jasa Pendidikan', 'Ref': 'INV-102', 'KodeAkunDebit': '1200', 'KodeAkunKredit': '4100', 'Jumlah': 2500000 },
+        ];
+        
+        const worksheet = XLSX.utils.json_to_sheet(exampleData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Transaksi");
+
+        worksheet['!cols'] = [ {wch:12}, {wch:40}, {wch:15}, {wch:15}, {wch:15}, {wch:20} ];
+
+        XLSX.writeFile(workbook, "Template_Transaksi_Massal.xlsx");
+    };
+
+    const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        setImportData([]);
+        setImportErrors([]);
+        setImportStatus('parsing');
+        setIsImportModalOpen(true);
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = new Uint8Array(e.target?.result as ArrayBuffer);
+                const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+                const sheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[sheetName];
+                const json: any[] = XLSX.utils.sheet_to_json(worksheet);
+
+                const validPayloads: any[] = [];
+                const errors: string[] = [];
+                const accountCodes = new Set(accounts.map(a => a.code));
+
+                json.forEach((row, index) => {
+                    const rowNum = index + 2;
+                    const { Tanggal, Deskripsi, Ref, KodeAkunDebit, KodeAkunKredit, Jumlah } = row;
+
+                    if (!Tanggal || !Deskripsi || !KodeAkunDebit || !KodeAkunKredit || !Jumlah) {
+                        errors.push(`Baris ${rowNum}: Kolom wajib (Tanggal, Deskripsi, KodeAkunDebit, KodeAkunKredit, Jumlah) tidak boleh kosong.`);
+                        return;
+                    }
+                    if (isNaN(new Date(Tanggal).getTime())) {
+                        errors.push(`Baris ${rowNum}: Format tanggal tidak valid.`);
+                        return;
+                    }
+                     if (!accountCodes.has(String(KodeAkunDebit))) {
+                        errors.push(`Baris ${rowNum}: Kode Akun Debit '${KodeAkunDebit}' tidak ditemukan.`);
+                        return;
+                    }
+                     if (!accountCodes.has(String(KodeAkunKredit))) {
+                        errors.push(`Baris ${rowNum}: Kode Akun Kredit '${KodeAkunKredit}' tidak ditemukan.`);
+                        return;
+                    }
+                    const amount = Number(Jumlah);
+                    if (isNaN(amount) || amount <= 0) {
+                        errors.push(`Baris ${rowNum}: Jumlah harus berupa angka positif.`);
+                        return;
+                    }
+                     if (String(KodeAkunDebit) === String(KodeAkunKredit)) {
+                        errors.push(`Baris ${rowNum}: Akun Debit dan Kredit tidak boleh sama.`);
+                        return;
+                    }
+
+                    validPayloads.push({
+                        transaction: {
+                            date: new Date(Tanggal).toISOString().split('T')[0],
+                            description: Deskripsi,
+                            ref: Ref || '',
+                        },
+                        entries: [
+                            { account_code: String(KodeAkunDebit), debit: amount, credit: 0 },
+                            { account_code: String(KodeAkunKredit), debit: 0, credit: amount },
+                        ]
+                    });
+                });
+
+                if (errors.length > 0) {
+                    setImportErrors(errors);
+                    setImportStatus('error');
+                } else if (validPayloads.length === 0) {
+                    setImportErrors(['Tidak ada data transaksi yang valid ditemukan dalam file.']);
+                    setImportStatus('error');
+                }
+                else {
+                    setImportData(validPayloads);
+                    setImportStatus('preview');
+                }
+
+            } catch (err: any) {
+                setImportErrors([`Gagal memproses file: ${err.message}`]);
+                setImportStatus('error');
+            } finally {
+                if(fileInputRef.current) fileInputRef.current.value = ""; // Reset file input
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    };
+    
+    const handleConfirmImport = async () => {
+        setImportStatus('importing');
+        try {
+            await addBulkTransactions(importData);
+            setImportStatus('success');
+        } catch (err: any) {
+            setImportErrors([`Gagal mengimpor: ${err.message}`]);
+            setImportStatus('error');
+        }
+    };
+
+
     return (
         <Card>
-            <div className="flex justify-between items-center mb-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                 <h2 className="text-2xl md:text-3xl font-bold">Pencatatan Transaksi</h2>
-                <button onClick={() => handleOpenModal()} className="bg-primary hover:bg-primary/80 text-white font-bold py-2 px-4 rounded-lg">
-                    + Transaksi Baru
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <input type="file" ref={fileInputRef} onChange={handleFileImport} className="hidden" accept=".xlsx, .xls" />
+                    <button onClick={handleDownloadTemplate} className="bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                        Unduh Template
+                    </button>
+                    <button onClick={() => fileInputRef.current?.click()} className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                        Impor dari Excel
+                    </button>
+                    <button onClick={() => handleOpenModal()} className="bg-primary hover:bg-primary/80 text-white font-bold py-2 px-4 rounded-lg">
+                        + Transaksi Baru
+                    </button>
+                </div>
             </div>
 
             <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -379,6 +576,14 @@ const Transactions: React.FC = () => {
                 </div>
             )}
              <TransactionForm isOpen={isModalOpen} onClose={handleCloseModal} transactionToEdit={editingTransaction} />
+             <ImportStatusModal 
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                status={importStatus}
+                data={importData}
+                errors={importErrors}
+                onConfirm={handleConfirmImport}
+            />
         </Card>
     );
 };

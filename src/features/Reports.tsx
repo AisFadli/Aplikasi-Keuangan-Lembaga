@@ -1,9 +1,8 @@
-
 import React, { useState, useMemo } from 'react';
 import Card from '../components/Card';
 import { useData } from '../contexts/DataContext';
 import { formatCurrency, formatDate } from '../utils/helpers';
-import type { Account, Transaction } from '../types';
+import type { Account, Asset } from '../types';
 
 // Helper to get start and end of the current year
 const getYearRange = () => {
@@ -35,6 +34,14 @@ interface ReportData {
     totalEquity: number;
     totalLiabilitiesAndEquity: number;
     isBalanced: boolean;
+}
+
+interface DepreciationRowData {
+    asset: Asset;
+    openingAccumulated: number;
+    periodDepreciation: number;
+    closingAccumulated: number;
+    bookValue: number;
 }
 
 const IncomeStatement: React.FC<{ data: ReportData, period: { start: string, end: string } }> = ({ data, period }) => {
@@ -101,10 +108,69 @@ const BalanceSheet: React.FC<{ data: ReportData, period: { end: string } }> = ({
     );
 };
 
+const DepreciationSchedule: React.FC<{ data: DepreciationRowData[], period: { start: string, end: string } }> = ({ data, period }) => {
+    const totalPeriodDepreciation = data.reduce((sum, item) => sum + item.periodDepreciation, 0);
+
+    return (
+        <div>
+            <h3 className="text-xl font-semibold mb-2">Jadwal Penyusutan Aset</h3>
+            <p className="text-sm text-gray-400 mb-4">Untuk Periode {formatDate(period.start)} s/d {formatDate(period.end)}</p>
+
+            <div className="overflow-x-auto">
+                <table className="w-full min-w-[1200px] text-sm">
+                    <thead>
+                        <tr className="border-b border-gray-600">
+                            <th className="text-left py-3 px-2">Nama Aset</th>
+                            <th className="text-left py-3 px-2">Kategori</th>
+                            <th className="text-right py-3 px-2">Harga Perolehan</th>
+                            <th className="text-right py-3 px-2">Akum. Peny. (Awal)</th>
+                            <th className="text-right py-3 px-2">Beban Peny. (Periode)</th>
+                            <th className="text-right py-3 px-2">Akum. Peny. (Akhir)</th>
+                            <th className="text-right py-3 px-2">Nilai Buku (Akhir)</th>
+                            <th className="text-center py-3 px-2">Masa Manfaat</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {data.length > 0 ? (
+                            data.map(item => (
+                                <tr key={item.asset.id} className="border-b border-gray-700 hover:bg-slate-800/50">
+                                    <td className="py-2 px-2">{item.asset.name}</td>
+                                    <td className="py-2 px-2 text-gray-300">{item.asset.category}</td>
+                                    <td className="py-2 px-2 text-right font-mono">{formatCurrency(item.asset.cost)}</td>
+                                    <td className="py-2 px-2 text-right font-mono">{formatCurrency(item.openingAccumulated)}</td>
+                                    <td className="py-2 px-2 text-right font-mono text-yellow-400">{formatCurrency(item.periodDepreciation)}</td>
+                                    <td className="py-2 px-2 text-right font-mono">{formatCurrency(item.closingAccumulated)}</td>
+                                    <td className="py-2 px-2 text-right font-mono font-bold">{formatCurrency(item.bookValue)}</td>
+                                    <td className="py-2 px-2 text-center">{item.asset.life} thn</td>
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td colSpan={8} className="text-center text-gray-400 py-8">
+                                    Tidak ada aset yang dapat disusutkan pada periode yang dipilih.
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                    <tfoot>
+                        {data.length > 0 && (
+                            <tr className="font-bold border-t-2 border-gray-500">
+                                <td colSpan={4} className="py-3 px-2 text-right">Total Beban Penyusutan Periode Ini</td>
+                                <td className="py-3 px-2 text-right font-mono text-yellow-400">{formatCurrency(totalPeriodDepreciation)}</td>
+                                <td colSpan={3}></td>
+                            </tr>
+                        )}
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    );
+};
+
 
 const Reports: React.FC = () => {
-    const { accounts, transactions, companySettings, loading, error } = useData();
-    const [activeTab, setActiveTab] = useState<'income' | 'balance'>('income');
+    const { accounts, transactions, assets, companySettings, loading, error } = useData();
+    const [activeTab, setActiveTab] = useState<'income' | 'balance' | 'depreciation'>('income');
     const [period, setPeriod] = useState(getYearRange());
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -120,17 +186,14 @@ const Reports: React.FC = () => {
             return null;
         }
 
-        // Transactions before the period for opening balances
         const priorTransactions = transactions.filter(tx => tx.date < period.start);
-        // Transactions within the period for calculating changes
         const periodTransactions = transactions.filter(tx => tx.date >= period.start && tx.date <= period.end);
 
         const openingBalances: { [code: string]: number } = {};
         for (const acc of accounts) {
-            openingBalances[acc.code] = 0; // Start with initial balance of 0, assuming all balances come from tx
+            openingBalances[acc.code] = 0;
         }
 
-        // Calculate opening balances from prior transactions
         for (const tx of priorTransactions) {
             for (const entry of tx.entries) {
                 const account = accounts.find(a => a.code === entry.account_code);
@@ -150,7 +213,6 @@ const Reports: React.FC = () => {
             periodChanges[acc.code] = 0;
         }
 
-        // Calculate changes within the period
         for (const tx of periodTransactions) {
             for (const entry of tx.entries) {
                  const account = accounts.find(a => a.code === entry.account_code);
@@ -165,21 +227,18 @@ const Reports: React.FC = () => {
             }
         }
         
-        // --- Income Statement Calculation ---
         const revenues = accounts.filter(a => a.type === 'Pendapatan').map(acc => ({...acc, balance: -periodChanges[acc.code] || 0}));
         const expenses = accounts.filter(a => a.type === 'Beban').map(acc => ({...acc, balance: periodChanges[acc.code] || 0}));
         const totalRevenue = revenues.reduce((sum, acc) => sum + acc.balance, 0);
         const totalExpense = expenses.reduce((sum, acc) => sum + acc.balance, 0);
         const netIncome = totalRevenue - totalExpense;
 
-        // --- Balance Sheet Calculation ---
         const assets = accounts.filter(a => a.type === 'Aset').map(acc => ({...acc, balance: (openingBalances[acc.code] || 0) + (periodChanges[acc.code] || 0)}));
         const liabilities = accounts.filter(a => a.type === 'Liabilitas').map(acc => ({...acc, balance: (openingBalances[acc.code] || 0) + (periodChanges[acc.code] || 0)}));
         
-        // Adjust Retained Earnings with Net Income for the period
         const equity = accounts.filter(a => a.type === 'Modal').map(acc => {
             let closingBalance = (openingBalances[acc.code] || 0) + (periodChanges[acc.code] || 0);
-            if (acc.code === '3200') { // Assuming '3200' is Retained Earnings
+            if (acc.code === '3200') {
                 closingBalance += netIncome;
             }
             return {...acc, balance: closingBalance };
@@ -189,14 +248,64 @@ const Reports: React.FC = () => {
         const totalLiabilities = liabilities.reduce((sum, acc) => sum + acc.balance, 0);
         const totalEquity = equity.reduce((sum, acc) => sum + acc.balance, 0);
         const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
-        // Use a small tolerance for floating point comparisons
         const isBalanced = Math.abs(totalAssets - totalLiabilitiesAndEquity) < 0.01;
 
         return { revenues, totalRevenue, expenses, totalExpense, netIncome, assets, totalAssets, liabilities, totalLiabilities, equity, totalEquity, totalLiabilitiesAndEquity, isBalanced };
 
     }, [accounts, transactions, period]);
 
-    const TabButton: React.FC<{ tab: 'income' | 'balance'; label: string }> = ({ tab, label }) => (
+    const depreciationData = useMemo((): DepreciationRowData[] | null => {
+        if (!period.start || !period.end || period.start > period.end) {
+            return null;
+        }
+
+        const reportStartDate = new Date(period.start);
+        const reportEndDate = new Date(period.end);
+
+        return assets
+            .filter(asset => asset.is_depreciable && asset.life && asset.life > 0 && asset.method === 'straight-line')
+            .map(asset => {
+                const acquisitionDate = new Date(asset.date);
+                const depreciableBase = asset.cost - asset.residual;
+
+                if (depreciableBase <= 0) return null;
+
+                const dailyDepreciation = depreciableBase / (asset.life! * 365);
+
+                let openingAccumulated = 0;
+                if (reportStartDate > acquisitionDate) {
+                    const daysBeforePeriod = (reportStartDate.getTime() - acquisitionDate.getTime()) / (1000 * 3600 * 24);
+                    openingAccumulated = Math.max(0, daysBeforePeriod * dailyDepreciation);
+                }
+                openingAccumulated = Math.min(depreciableBase, openingAccumulated);
+
+                let periodDepreciation = 0;
+                const effectiveStartDate = reportStartDate > acquisitionDate ? reportStartDate : acquisitionDate;
+                
+                if (reportEndDate >= effectiveStartDate) {
+                    const daysInPeriod = (reportEndDate.getTime() - effectiveStartDate.getTime()) / (1000 * 3600 * 24) + 1;
+                    const remainingDepreciable = depreciableBase - openingAccumulated;
+                    
+                    periodDepreciation = Math.max(0, daysInPeriod * dailyDepreciation);
+                    periodDepreciation = Math.min(remainingDepreciable, periodDepreciation);
+                }
+
+                const closingAccumulated = openingAccumulated + periodDepreciation;
+                const bookValue = asset.cost - closingAccumulated;
+
+                return {
+                    asset,
+                    openingAccumulated,
+                    periodDepreciation,
+                    closingAccumulated,
+                    bookValue
+                };
+            })
+            .filter((item): item is DepreciationRowData => item !== null);
+
+    }, [assets, period]);
+
+    const TabButton: React.FC<{ tab: 'income' | 'balance' | 'depreciation'; label: string }> = ({ tab, label }) => (
         <button
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 rounded-md transition-colors ${activeTab === tab ? 'bg-primary text-white' : 'bg-slate-700 hover:bg-slate-600'}`}
@@ -205,14 +314,21 @@ const Reports: React.FC = () => {
         </button>
     );
 
+    const printHeaderTitle = activeTab === 'income' ? 'Laporan Laba Rugi' : activeTab === 'balance' ? 'Neraca' : 'Jadwal Penyusutan';
+    const printHeaderPeriod = activeTab === 'income' || activeTab === 'depreciation'
+        ? `Untuk Periode ${formatDate(period.start)} s/d ${formatDate(period.end)}`
+        : `Per ${formatDate(period.end)}`;
+
+
     return (
         <div className="printable-area">
             <Card>
                 <div className="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4 no-print">
                      <h2 className="text-2xl md:text-3xl font-bold">Laporan Keuangan</h2>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 flex-wrap">
                         <TabButton tab="income" label="Laporan Laba Rugi" />
                         <TabButton tab="balance" label="Neraca" />
+                        <TabButton tab="depreciation" label="Jadwal Penyusutan" />
                     </div>
                 </div>
                 
@@ -234,22 +350,19 @@ const Reports: React.FC = () => {
 
                 {loading && <div className="text-center py-8 no-print">Memuat data laporan...</div>}
                 {error && <div className="text-center py-8 text-red-400 no-print">Error: {error}</div>}
-                {!loading && !error && !reportData && <div className="text-center py-8 text-yellow-400 no-print">Harap pilih rentang tanggal yang valid.</div>}
+                {!loading && !error && !reportData && !depreciationData && <div className="text-center py-8 text-yellow-400 no-print">Harap pilih rentang tanggal yang valid.</div>}
 
-                {/* This is the content that will be printed */}
                 <div id="report-content">
                     <div className="print-header hidden">
                         <h1>{companySettings.name}</h1>
-                        <h2>{activeTab === 'income' ? 'Laporan Laba Rugi' : 'Neraca'}</h2>
-                        <p>
-                            {activeTab === 'income'
-                                ? `Untuk Periode ${formatDate(period.start)} s/d ${formatDate(period.end)}`
-                                : `Per ${formatDate(period.end)}`}
-                        </p>
+                        <h2>{printHeaderTitle}</h2>
+                        <p>{printHeaderPeriod}</p>
                     </div>
-                    {!loading && !error && reportData && (
+                    {!loading && !error && (
                         <div>
-                            {activeTab === 'income' ? <IncomeStatement data={reportData} period={period} /> : <BalanceSheet data={reportData} period={period} />}
+                            {activeTab === 'income' && reportData && <IncomeStatement data={reportData} period={period} />}
+                            {activeTab === 'balance' && reportData && <BalanceSheet data={reportData} period={period} />}
+                            {activeTab === 'depreciation' && depreciationData && <DepreciationSchedule data={depreciationData} period={period} />}
                         </div>
                     )}
                 </div>

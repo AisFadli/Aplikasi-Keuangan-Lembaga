@@ -171,6 +171,64 @@ export const deleteTransaction = async (id: string) => {
     if (error) throw error;
 };
 
+// --- Bulk Transactions API ---
+export type BulkTransactionPayload = {
+    transaction: Omit<Transaction, 'id' | 'entries'>;
+    entries: Omit<JournalEntry, 'id' | 'transaction_id'>[];
+};
+
+export const createBulkTransactions = async (payloads: BulkTransactionPayload[]) => {
+    // 1. Prepare transactions and entries with client-side generated IDs
+    const transactionsToInsert = payloads.map(p => ({
+        ...p.transaction,
+        id: generateNumericId(),
+    }));
+
+    const entriesToInsert: Omit<JournalEntry, 'id'>[] = [];
+    payloads.forEach((p, index) => {
+        const transactionId = transactionsToInsert[index].id;
+        p.entries.forEach(entry => {
+            // FIX: The 'transaction_id' in the JournalEntry type is a string, but transactionId is a number. Convert to string.
+            entriesToInsert.push({ ...entry, transaction_id: String(transactionId) });
+        });
+    });
+
+    // 2. Insert all transactions
+    const { error: transactionError } = await supabase
+        .from('transactions')
+        .insert(transactionsToInsert);
+        
+    if (transactionError) {
+        throw new Error(`Gagal menyisipkan transaksi: ${transactionError.message}`);
+    }
+
+    // 3. Insert all journal entries
+    const { error: entriesError } = await supabase
+        .from('journal_entries')
+        .insert(entriesToInsert);
+        
+    if (entriesError) {
+        // NOTE: Transactions are now orphaned. A cleanup job or RPC would be needed for a production-robust system.
+        throw new Error(`Transaksi dibuat, tetapi gagal menyisipkan entri jurnal: ${entriesError.message}`);
+    }
+
+    // FIX: The original return value was missing the 'entries' property and had a numeric 'id',
+    // which does not match the 'Transaction[]' type. This constructs the correct return object.
+    return transactionsToInsert.map((tx, index) => {
+        const payload = payloads[index];
+        const transactionIdStr = String(tx.id);
+
+        return {
+            ...payload.transaction,
+            id: transactionIdStr,
+            entries: payload.entries.map(e => ({
+                ...e,
+                transaction_id: transactionIdStr,
+            }))
+        };
+    }) as Transaction[];
+};
+
 
 // --- Assets API ---
 export const getAssets = async () => {

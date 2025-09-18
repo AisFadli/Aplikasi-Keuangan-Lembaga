@@ -1,9 +1,9 @@
-
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import type { Account, Transaction, Asset, CompanySettings, TaxSettings, JournalEntry, Profile } from '../types';
 import * as api from '../services/supabase';
 import { defaultAccounts, defaultCompanySettings, defaultTaxSettings, formatDate } from '../utils/helpers';
+import type { BulkTransactionPayload } from '../services/supabase';
 
 interface DataContextType {
     // Auth State
@@ -30,6 +30,7 @@ interface DataContextType {
     updateAccount: (code: string, updates: Partial<Account>) => Promise<void>;
     deleteAccount: (code: string) => Promise<void>;
     addTransaction: (transaction: Omit<Transaction, 'id' | 'entries'>, entries: Omit<JournalEntry, 'id'|'transaction_id'>[]) => Promise<void>;
+    addBulkTransactions: (payloads: BulkTransactionPayload[]) => Promise<void>;
     updateTransaction: (id: string, updates: Partial<Omit<Transaction, 'id' | 'entries'>>) => Promise<void>;
     deleteTransaction: (id: string) => Promise<void>;
     addAsset: (asset: Omit<Asset, 'id'>) => Promise<void>;
@@ -153,11 +154,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const saveTaxSettings = async (settings: TaxSettings) => { await api.saveTaxSettings(settings); setTaxSettings(settings); };
 
     const addTransaction = async (transaction: Omit<Transaction, 'id' | 'entries'>, entries: Omit<JournalEntry, 'id'|'transaction_id'>[]) => {
+        // Step 1: Create the transaction and its journal entries
         const newTransaction = await api.createTransaction(transaction, entries);
+        
+        // Step 2: Update account balances based on the new transaction
         const currentAccounts = await api.getAccounts();
-        const accountUpdates = newTransaction.entries.map(entry => {
+        const accountUpdatePromises = newTransaction.entries.map(entry => {
             const account = currentAccounts.find(a => a.code === entry.account_code);
-            if (!account) throw new Error(`Account ${entry.account_code} not found during balance update.`);
+            if (!account) throw new Error(`Akun ${entry.account_code} tidak ditemukan saat pembaruan saldo.`);
             let newBalance = account.balance;
             if (account.type === 'Aset' || account.type === 'Beban') {
                 newBalance += entry.debit - entry.credit;
@@ -166,7 +170,44 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             return api.updateAccount(account.code, { balance: newBalance });
         });
-        await Promise.all(accountUpdates);
+        await Promise.all(accountUpdatePromises);
+
+        // Step 3: Check for asset creation trigger
+        const assetCreationPromises: Promise<any>[] = [];
+        for (const entry of newTransaction.entries) {
+            if (entry.debit > 0) {
+                const account = currentAccounts.find(a => a.code === entry.account_code);
+                // Heuristik: Anggap setiap debit ke akun Aset yang bukan Kas, Bank, atau Piutang adalah pembelian aset baru.
+                const nonFixedAssetCodes = ['1100', '1200', '1300', '1400', '1600'];
+                if (account && account.type === 'Aset' && !nonFixedAssetCodes.includes(account.code)) {
+                    const newAsset: Omit<Asset, 'id'> = {
+                        name: newTransaction.description,
+                        category: account.name,
+                        cost: entry.debit,
+                        date: newTransaction.date,
+                        life: null, // Perlu diisi oleh pengguna nanti
+                        residual: 0,
+                        method: null, // Perlu diisi oleh pengguna nanti
+                        is_depreciable: true, // Default ke true, pengguna dapat mengubahnya
+                        accumulated_depreciation: 0,
+                        last_depreciation_date: null
+                    };
+                    assetCreationPromises.push(api.createAsset(newAsset));
+                }
+            }
+        }
+        if (assetCreationPromises.length > 0) {
+            await Promise.all(assetCreationPromises);
+        }
+
+        // Step 4: Refresh all data to reflect changes
+        await fetchData();
+    };
+
+    const addBulkTransactions = async (payloads: BulkTransactionPayload[]) => {
+        await api.createBulkTransactions(payloads);
+        // Simplest way to update balances is to refetch all data.
+        // This is inefficient for a large number of accounts but guarantees consistency.
         await fetchData();
     };
     
@@ -253,6 +294,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateAccount,
         deleteAccount,
         addTransaction,
+        addBulkTransactions,
         updateTransaction,
         deleteTransaction,
         addAsset,
