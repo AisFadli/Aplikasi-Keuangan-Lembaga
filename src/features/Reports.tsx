@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+
+import React, { useState, useMemo, useEffect } from 'react';
 import Card from '../components/Card';
 import { useData } from '../contexts/DataContext';
 import { formatCurrency, formatDate } from '../utils/helpers';
@@ -172,6 +173,108 @@ const Reports: React.FC = () => {
     const { accounts, transactions, assets, companySettings, loading, error } = useData();
     const [activeTab, setActiveTab] = useState<'income' | 'balance' | 'depreciation'>('income');
     const [period, setPeriod] = useState(getYearRange());
+    const [reportData, setReportData] = useState<ReportData | null>(null);
+    const [depreciationData, setDepreciationData] = useState<DepreciationRowData[] | null>(null);
+    const [isCalculating, setIsCalculating] = useState(true);
+
+    useEffect(() => {
+        if (loading) return;
+
+        setIsCalculating(true);
+        const timer = setTimeout(() => {
+            if (!period.start || !period.end || period.start > period.end) {
+                setReportData(null);
+                setDepreciationData(null);
+                setIsCalculating(false);
+                return;
+            }
+
+            const priorTransactions = transactions.filter(tx => tx.date < period.start);
+            const periodTransactions = transactions.filter(tx => tx.date >= period.start && tx.date <= period.end);
+
+            const openingBalances: { [code: string]: number } = {};
+            accounts.forEach(acc => { openingBalances[acc.code] = 0; });
+
+            priorTransactions.forEach(tx => {
+                tx.entries.forEach(entry => {
+                    const account = accounts.find(a => a.code === entry.account_code);
+                    if (account) {
+                        const change = entry.debit - entry.credit;
+                        openingBalances[account.code] += (account.type === 'Aset' || account.type === 'Beban') ? change : -change;
+                    }
+                });
+            });
+
+            const periodChanges: { [code: string]: number } = {};
+            accounts.forEach(acc => { periodChanges[acc.code] = 0; });
+
+            periodTransactions.forEach(tx => {
+                tx.entries.forEach(entry => {
+                    const account = accounts.find(a => a.code === entry.account_code);
+                    if (account) {
+                        const change = entry.debit - entry.credit;
+                        periodChanges[account.code] += (account.type === 'Aset' || account.type === 'Beban') ? change : -change;
+                    }
+                });
+            });
+
+            const revenues = accounts.filter(a => a.type === 'Pendapatan').map(acc => ({ ...acc, balance: -periodChanges[acc.code] || 0 }));
+            const expenses = accounts.filter(a => a.type === 'Beban').map(acc => ({ ...acc, balance: periodChanges[acc.code] || 0 }));
+            const totalRevenue = revenues.reduce((sum, acc) => sum + acc.balance, 0);
+            const totalExpense = expenses.reduce((sum, acc) => sum + acc.balance, 0);
+            const netIncome = totalRevenue - totalExpense;
+
+            const finalAssets = accounts.filter(a => a.type === 'Aset').map(acc => ({ ...acc, balance: (openingBalances[acc.code] || 0) + (periodChanges[acc.code] || 0) }));
+            const finalLiabilities = accounts.filter(a => a.type === 'Liabilitas').map(acc => ({ ...acc, balance: (openingBalances[acc.code] || 0) + (periodChanges[acc.code] || 0) }));
+            const finalEquity = accounts.filter(a => a.type === 'Modal').map(acc => {
+                let closingBalance = (openingBalances[acc.code] || 0) + (periodChanges[acc.code] || 0);
+                if (acc.code === '3200') {
+                    closingBalance += netIncome;
+                }
+                return { ...acc, balance: closingBalance };
+            });
+
+            const totalAssets = finalAssets.reduce((sum, acc) => sum + acc.balance, 0);
+            const totalLiabilities = finalLiabilities.reduce((sum, acc) => sum + acc.balance, 0);
+            const totalEquity = finalEquity.reduce((sum, acc) => sum + acc.balance, 0);
+            const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
+            const isBalanced = Math.abs(totalAssets - totalLiabilitiesAndEquity) < 0.01;
+
+            setReportData({ revenues, totalRevenue, expenses, totalExpense, netIncome, assets: finalAssets, totalAssets, liabilities: finalLiabilities, totalLiabilities, equity: finalEquity, totalEquity, totalLiabilitiesAndEquity, isBalanced });
+
+            const reportStartDate = new Date(period.start);
+            const reportEndDate = new Date(period.end);
+            const calculatedDepreciationData = assets.filter(asset => asset.is_depreciable && asset.life && asset.life > 0 && asset.method === 'straight-line').map(asset => {
+                const acquisitionDate = new Date(asset.date);
+                const depreciableBase = asset.cost - asset.residual;
+                if (depreciableBase <= 0) return null;
+                const dailyDepreciation = depreciableBase / (asset.life! * 365);
+                let openingAccumulated = 0;
+                if (reportStartDate > acquisitionDate) {
+                    const daysBeforePeriod = (reportStartDate.getTime() - acquisitionDate.getTime()) / (1000 * 3600 * 24);
+                    openingAccumulated = Math.max(0, daysBeforePeriod * dailyDepreciation);
+                }
+                openingAccumulated = Math.min(depreciableBase, openingAccumulated);
+                let periodDepreciation = 0;
+                const effectiveStartDate = reportStartDate > acquisitionDate ? reportStartDate : acquisitionDate;
+                if (reportEndDate >= effectiveStartDate) {
+                    const daysInPeriod = (reportEndDate.getTime() - effectiveStartDate.getTime()) / (1000 * 3600 * 24) + 1;
+                    const remainingDepreciable = depreciableBase - openingAccumulated;
+                    periodDepreciation = Math.max(0, daysInPeriod * dailyDepreciation);
+                    periodDepreciation = Math.min(remainingDepreciable, periodDepreciation);
+                }
+                const closingAccumulated = openingAccumulated + periodDepreciation;
+                const bookValue = asset.cost - closingAccumulated;
+                return { asset, openingAccumulated, periodDepreciation, closingAccumulated, bookValue };
+            }).filter((item): item is DepreciationRowData => item !== null);
+
+            setDepreciationData(calculatedDepreciationData);
+            setIsCalculating(false);
+        }, 50);
+
+        return () => clearTimeout(timer);
+    }, [accounts, transactions, assets, period, loading]);
+
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setPeriod(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -180,130 +283,6 @@ const Reports: React.FC = () => {
     const handlePrint = () => {
         window.print();
     };
-
-    const reportData = useMemo((): ReportData | null => {
-        if (!period.start || !period.end || period.start > period.end) {
-            return null;
-        }
-
-        const priorTransactions = transactions.filter(tx => tx.date < period.start);
-        const periodTransactions = transactions.filter(tx => tx.date >= period.start && tx.date <= period.end);
-
-        const openingBalances: { [code: string]: number } = {};
-        for (const acc of accounts) {
-            openingBalances[acc.code] = 0;
-        }
-
-        for (const tx of priorTransactions) {
-            for (const entry of tx.entries) {
-                const account = accounts.find(a => a.code === entry.account_code);
-                if (account) {
-                    const change = entry.debit - entry.credit;
-                    if (account.type === 'Aset' || account.type === 'Beban') {
-                        openingBalances[account.code] += change;
-                    } else {
-                        openingBalances[account.code] -= change;
-                    }
-                }
-            }
-        }
-
-        const periodChanges: { [code: string]: number } = {};
-        for (const acc of accounts) {
-            periodChanges[acc.code] = 0;
-        }
-
-        for (const tx of periodTransactions) {
-            for (const entry of tx.entries) {
-                 const account = accounts.find(a => a.code === entry.account_code);
-                 if (account) {
-                    const change = entry.debit - entry.credit;
-                     if (account.type === 'Aset' || account.type === 'Beban') {
-                        periodChanges[account.code] += change;
-                    } else {
-                        periodChanges[account.code] -= change;
-                    }
-                 }
-            }
-        }
-        
-        const revenues = accounts.filter(a => a.type === 'Pendapatan').map(acc => ({...acc, balance: -periodChanges[acc.code] || 0}));
-        const expenses = accounts.filter(a => a.type === 'Beban').map(acc => ({...acc, balance: periodChanges[acc.code] || 0}));
-        const totalRevenue = revenues.reduce((sum, acc) => sum + acc.balance, 0);
-        const totalExpense = expenses.reduce((sum, acc) => sum + acc.balance, 0);
-        const netIncome = totalRevenue - totalExpense;
-
-        const assets = accounts.filter(a => a.type === 'Aset').map(acc => ({...acc, balance: (openingBalances[acc.code] || 0) + (periodChanges[acc.code] || 0)}));
-        const liabilities = accounts.filter(a => a.type === 'Liabilitas').map(acc => ({...acc, balance: (openingBalances[acc.code] || 0) + (periodChanges[acc.code] || 0)}));
-        
-        const equity = accounts.filter(a => a.type === 'Modal').map(acc => {
-            let closingBalance = (openingBalances[acc.code] || 0) + (periodChanges[acc.code] || 0);
-            if (acc.code === '3200') {
-                closingBalance += netIncome;
-            }
-            return {...acc, balance: closingBalance };
-        });
-
-        const totalAssets = assets.reduce((sum, acc) => sum + acc.balance, 0);
-        const totalLiabilities = liabilities.reduce((sum, acc) => sum + acc.balance, 0);
-        const totalEquity = equity.reduce((sum, acc) => sum + acc.balance, 0);
-        const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
-        const isBalanced = Math.abs(totalAssets - totalLiabilitiesAndEquity) < 0.01;
-
-        return { revenues, totalRevenue, expenses, totalExpense, netIncome, assets, totalAssets, liabilities, totalLiabilities, equity, totalEquity, totalLiabilitiesAndEquity, isBalanced };
-
-    }, [accounts, transactions, period]);
-
-    const depreciationData = useMemo((): DepreciationRowData[] | null => {
-        if (!period.start || !period.end || period.start > period.end) {
-            return null;
-        }
-
-        const reportStartDate = new Date(period.start);
-        const reportEndDate = new Date(period.end);
-
-        return assets
-            .filter(asset => asset.is_depreciable && asset.life && asset.life > 0 && asset.method === 'straight-line')
-            .map(asset => {
-                const acquisitionDate = new Date(asset.date);
-                const depreciableBase = asset.cost - asset.residual;
-
-                if (depreciableBase <= 0) return null;
-
-                const dailyDepreciation = depreciableBase / (asset.life! * 365);
-
-                let openingAccumulated = 0;
-                if (reportStartDate > acquisitionDate) {
-                    const daysBeforePeriod = (reportStartDate.getTime() - acquisitionDate.getTime()) / (1000 * 3600 * 24);
-                    openingAccumulated = Math.max(0, daysBeforePeriod * dailyDepreciation);
-                }
-                openingAccumulated = Math.min(depreciableBase, openingAccumulated);
-
-                let periodDepreciation = 0;
-                const effectiveStartDate = reportStartDate > acquisitionDate ? reportStartDate : acquisitionDate;
-                
-                if (reportEndDate >= effectiveStartDate) {
-                    const daysInPeriod = (reportEndDate.getTime() - effectiveStartDate.getTime()) / (1000 * 3600 * 24) + 1;
-                    const remainingDepreciable = depreciableBase - openingAccumulated;
-                    
-                    periodDepreciation = Math.max(0, daysInPeriod * dailyDepreciation);
-                    periodDepreciation = Math.min(remainingDepreciable, periodDepreciation);
-                }
-
-                const closingAccumulated = openingAccumulated + periodDepreciation;
-                const bookValue = asset.cost - closingAccumulated;
-
-                return {
-                    asset,
-                    openingAccumulated,
-                    periodDepreciation,
-                    closingAccumulated,
-                    bookValue
-                };
-            })
-            .filter((item): item is DepreciationRowData => item !== null);
-
-    }, [assets, period]);
 
     const TabButton: React.FC<{ tab: 'income' | 'balance' | 'depreciation'; label: string }> = ({ tab, label }) => (
         <button
@@ -318,6 +297,23 @@ const Reports: React.FC = () => {
     const printHeaderPeriod = activeTab === 'income' || activeTab === 'depreciation'
         ? `Untuk Periode ${formatDate(period.start)} s/d ${formatDate(period.end)}`
         : `Per ${formatDate(period.end)}`;
+
+    const renderReportContent = () => {
+        if (isCalculating) {
+            return (
+                <div className="relative h-64 flex items-center justify-center no-print">
+                    <div className="w-12 h-12 border-4 border-dashed rounded-full animate-spin border-primary"></div>
+                    <p className="absolute top-1/2 left-1/2 -translate-x-1/2 translate-y-10 text-gray-400">Menghasilkan laporan...</p>
+                </div>
+            );
+        }
+        
+        if (activeTab === 'income' && reportData) return <IncomeStatement data={reportData} period={period} />;
+        if (activeTab === 'balance' && reportData) return <BalanceSheet data={reportData} period={period} />;
+        if (activeTab === 'depreciation' && depreciationData) return <DepreciationSchedule data={depreciationData} period={period} />;
+        
+        return <div className="text-center py-8 text-yellow-400 no-print">Harap pilih rentang tanggal yang valid.</div>;
+    };
 
 
     return (
@@ -350,7 +346,6 @@ const Reports: React.FC = () => {
 
                 {loading && <div className="text-center py-8 no-print">Memuat data laporan...</div>}
                 {error && <div className="text-center py-8 text-red-400 no-print">Error: {error}</div>}
-                {!loading && !error && !reportData && !depreciationData && <div className="text-center py-8 text-yellow-400 no-print">Harap pilih rentang tanggal yang valid.</div>}
 
                 <div id="report-content">
                     <div className="print-header hidden">
@@ -358,15 +353,8 @@ const Reports: React.FC = () => {
                         <h2>{printHeaderTitle}</h2>
                         <p>{printHeaderPeriod}</p>
                     </div>
-                    {!loading && !error && (
-                        <div>
-                            {activeTab === 'income' && reportData && <IncomeStatement data={reportData} period={period} />}
-                            {activeTab === 'balance' && reportData && <BalanceSheet data={reportData} period={period} />}
-                            {activeTab === 'depreciation' && depreciationData && <DepreciationSchedule data={depreciationData} period={period} />}
-                        </div>
-                    )}
+                    {!loading && !error && renderReportContent()}
                 </div>
-
             </Card>
         </div>
     );

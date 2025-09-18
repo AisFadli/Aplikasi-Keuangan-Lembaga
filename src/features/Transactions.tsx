@@ -327,6 +327,8 @@ const Transactions: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(15);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -338,14 +340,30 @@ const Transactions: React.FC = () => {
         return transactions.filter(tx => {
             const searchLower = searchTerm.toLowerCase();
             const matchesSearch = tx.description.toLowerCase().includes(searchLower) || (tx.ref && tx.ref.toLowerCase().includes(searchLower));
-
-            // String comparison is safe and timezone-agnostic for YYYY-MM-DD format
             const matchesStartDate = startDate ? tx.date >= startDate : true;
             const matchesEndDate = endDate ? tx.date <= endDate : true;
-
             return matchesSearch && matchesStartDate && matchesEndDate;
         });
     }, [transactions, searchTerm, startDate, endDate]);
+
+    const pageCount = useMemo(() => {
+        return Math.ceil(filteredTransactions.length / itemsPerPage);
+    }, [filteredTransactions.length, itemsPerPage]);
+
+    const paginatedTransactions = useMemo(() => {
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        return filteredTransactions.slice(startIndex, startIndex + itemsPerPage);
+    }, [filteredTransactions, currentPage, itemsPerPage]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, startDate, endDate, itemsPerPage]);
+
+    const handlePageChange = (newPage: number) => {
+        if (newPage >= 1 && newPage <= pageCount) {
+            setCurrentPage(newPage);
+        }
+    };
 
     const handleOpenModal = (transaction?: Transaction) => {
         setEditingTransaction(transaction || null);
@@ -539,41 +557,77 @@ const Transactions: React.FC = () => {
             {error && <div className="text-center py-8 text-red-400">Error: {error}</div>}
 
             {!loading && !error && (
-                <div className="overflow-x-auto">
-                    <table className="w-full min-w-[700px]">
-                        <thead>
-                            <tr className="border-b border-gray-600">
-                                <th className="text-left py-3 px-4">Tanggal</th>
-                                <th className="text-left py-3 px-4">Deskripsi</th>
-                                <th className="text-left py-3 px-4">Ref</th>
-                                <th className="text-right py-3 px-4">Jumlah</th>
-                                <th className="text-center py-3 px-4">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredTransactions.length > 0 ? (
-                                filteredTransactions.map(tx => (
-                                    <tr key={tx.id} className="border-b border-gray-700 hover:bg-slate-800/50">
-                                        <td className="py-3 px-4">{formatDate(tx.date)}</td>
-                                        <td className="py-3 px-4">{tx.description}</td>
-                                        <td className="py-3 px-4 text-gray-400">{tx.ref || '-'}</td>
-                                        <td className="py-3 px-4 text-right font-mono">{formatCurrency(tx.entries.reduce((sum, entry) => sum + entry.debit, 0))}</td>
-                                        <td className="py-3 px-4 text-center">
-                                            <button onClick={() => handleOpenModal(tx)} className="text-blue-400 hover:underline text-sm mr-3">Edit</button>
-                                            <button onClick={() => handleDelete(tx.id!)} className="text-red-400 hover:underline text-sm">Hapus</button>
+                <>
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[700px]">
+                            <thead>
+                                <tr className="border-b border-gray-600">
+                                    <th className="text-left py-3 px-4">Tanggal</th>
+                                    <th className="text-left py-3 px-4">Deskripsi</th>
+                                    <th className="text-left py-3 px-4">Ref</th>
+                                    <th className="text-right py-3 px-4">Jumlah</th>
+                                    <th className="text-center py-3 px-4">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {paginatedTransactions.length > 0 ? (
+                                    paginatedTransactions.map(tx => (
+                                        <tr key={tx.id} className="border-b border-gray-700 hover:bg-slate-800/50">
+                                            <td className="py-3 px-4">{formatDate(tx.date)}</td>
+                                            <td className="py-3 px-4">{tx.description}</td>
+                                            <td className="py-3 px-4 text-gray-400">{tx.ref || '-'}</td>
+                                            <td className="py-3 px-4 text-right font-mono">{formatCurrency(tx.entries.reduce((sum, entry) => sum + entry.debit, 0))}</td>
+                                            <td className="py-3 px-4 text-center">
+                                                <button onClick={() => handleOpenModal(tx)} className="text-blue-400 hover:underline text-sm mr-3">Edit</button>
+                                                <button onClick={() => handleDelete(tx.id!)} className="text-red-400 hover:underline text-sm">Hapus</button>
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={5} className="text-center text-gray-400 py-8">
+                                            {transactions.length > 0 ? 'Tidak ada transaksi yang cocok dengan kriteria.' : "Belum ada transaksi. Klik 'Transaksi Baru' untuk memulai."}
                                         </td>
                                     </tr>
-                                ))
-                            ) : (
-                                <tr>
-                                    <td colSpan={5} className="text-center text-gray-400 py-8">
-                                        {transactions.length > 0 ? 'Tidak ada transaksi yang cocok dengan kriteria.' : "Belum ada transaksi. Klik 'Transaksi Baru' untuk memulai."}
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    {pageCount > 1 && (
+                         <div className="flex flex-col md:flex-row justify-between items-center mt-6 gap-4">
+                            <div>
+                                <span className="text-sm text-gray-400">
+                                    Halaman {currentPage} dari {pageCount} ({filteredTransactions.length} total transaksi)
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => handlePageChange(currentPage - 1)}
+                                    disabled={currentPage === 1}
+                                    className="px-3 py-1 rounded-md bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-gray-500 disabled:cursor-not-allowed"
+                                >
+                                    Sebelumnya
+                                </button>
+                                <button
+                                    onClick={() => handlePageChange(currentPage + 1)}
+                                    disabled={currentPage === pageCount}
+                                    className="px-3 py-1 rounded-md bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-gray-500 disabled:cursor-not-allowed"
+                                >
+                                    Berikutnya
+                                </button>
+                                <select
+                                    value={itemsPerPage}
+                                    onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                                    className="bg-slate-700 border border-slate-600 rounded-md p-1.5 text-sm"
+                                >
+                                    <option value={15}>15 / halaman</option>
+                                    <option value={30}>30 / halaman</option>
+                                    <option value={50}>50 / halaman</option>
+                                </select>
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
              <TransactionForm isOpen={isModalOpen} onClose={handleCloseModal} transactionToEdit={editingTransaction} />
              <ImportStatusModal 
