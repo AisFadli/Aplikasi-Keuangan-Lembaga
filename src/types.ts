@@ -37,6 +37,7 @@ export interface Asset {
     method: 'straight-line' | 'declining-balance' | 'sum-of-years' | null;
     is_depreciable: boolean;
     accumulated_depreciation: number;
+    last_depreciation_date: string | null;
 }
 
 export interface CompanySettings {

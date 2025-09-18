@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import type { Session, User } from '@supabase/supabase-js';
 import type { Account, Transaction, Asset, CompanySettings, TaxSettings, JournalEntry, Profile } from '../types';
 import * as api from '../services/supabase';
-import { defaultAccounts, defaultCompanySettings, defaultTaxSettings } from '../utils/helpers';
+import { defaultAccounts, defaultCompanySettings, defaultTaxSettings, formatDate } from '../utils/helpers';
 
 interface DataContextType {
     // Auth State
@@ -37,6 +37,7 @@ interface DataContextType {
     deleteAsset: (id: string) => Promise<void>;
     saveCompanySettings: (settings: CompanySettings) => Promise<void>;
     saveTaxSettings: (settings: TaxSettings) => Promise<void>;
+    runDepreciation: (depreciationDate: string, assetsToDepreciate: { asset: Asset, amount: number }[]) => Promise<void>;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -189,6 +190,45 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await fetchData();
     };
 
+    const runDepreciation = async (depreciationDate: string, assetsToDepreciate: { asset: Asset, amount: number }[]) => {
+        if (assetsToDepreciate.length === 0) return;
+    
+        const totalDepreciationAmount = assetsToDepreciate.reduce((sum, item) => sum + item.amount, 0);
+    
+        // Hardcoded account codes based on default chart of accounts
+        const DEPRECIATION_EXPENSE_ACCOUNT = '5400';
+        const ACCUMULATED_DEPRECIATION_ACCOUNT = '1600';
+    
+        // 1. Create the depreciation journal entry transaction
+        const transactionData = {
+            date: depreciationDate,
+            ref: `DEP-${depreciationDate}`,
+            description: `Penyusutan aset periode s/d ${formatDate(depreciationDate)}`,
+        };
+        const entries = [
+            { account_code: DEPRECIATION_EXPENSE_ACCOUNT, debit: totalDepreciationAmount, credit: 0 },
+            { account_code: ACCUMULATED_DEPRECIATION_ACCOUNT, debit: 0, credit: totalDepreciationAmount },
+        ];
+        
+        // Use the existing addTransaction which handles balance updates and refetches data.
+        await addTransaction(transactionData, entries);
+    
+        // 2. Update each asset's accumulated depreciation and last depreciation date.
+        // This is done after the transaction to ensure the journal entry is posted first.
+        const assetUpdatePromises = assetsToDepreciate.map(({ asset, amount }) => {
+            const newAccumulatedDepreciation = asset.accumulated_depreciation + amount;
+            return api.updateAsset(asset.id!, {
+                accumulated_depreciation: newAccumulatedDepreciation,
+                last_depreciation_date: depreciationDate,
+            });
+        });
+    
+        await Promise.all(assetUpdatePromises);
+    
+        // 3. Refetch data to get the updated asset information in the UI.
+        await fetchData();
+    };
+
     const value: DataContextType = {
         // Auth
         session,
@@ -219,7 +259,8 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateAsset,
         deleteAsset,
         saveCompanySettings,
-        saveTaxSettings
+        saveTaxSettings,
+        runDepreciation
     };
 
     return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
