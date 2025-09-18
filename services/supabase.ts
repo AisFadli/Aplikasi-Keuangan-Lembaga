@@ -1,17 +1,19 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js'
 import type { Account, Transaction, Asset, CompanySettings, TaxSettings, JournalEntry, AccountType } from '../types';
 
 // IMPORTANT: Replace these with your actual Supabase project URL and anon key.
-// It is recommended to use environment variables for this.
-const supabaseUrl = process.env.SUPABASE_URL || 'https://dgqdtxiqfslvkxcntavb.supabase.co';
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRncWR0eGlxZnNsdmt4Y250YXZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcxMzMzMzcsImV4cCI6MjA3MjcwOTMzN30.XVbnJej9SlLqrg_jQKcsB7tHC-AYRurhzAWu4AE48HU';
+// Ambil URL & Key dari environment
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
+const supabaseKey = import.meta.env.VITE_SUPABASE_KEY as string
 
-if (supabaseUrl === 'https://dgqdtxiqfslvkxcntavb.supabase.co' || supabaseAnonKey === 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRncWR0eGlxZnNsdmt4Y250YXZiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcxMzMzMzcsImV4cCI6MjA3MjcwOTMzN30.XVbnJej9SlLqrg_jQKcsB7tHC-AYRurhzAWu4AE48HU') {
-    console.warn("Supabase URL and Anon Key are not configured. Please update services/supabase.ts");
+// Validasi agar error lebih mudah dilacak
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error(
+    "Supabase URL dan Key tidak ditemukan. Pastikan sudah menambahkan VITE_SUPABASE_URL dan VITE_SUPABASE_KEY di environment variables."
+  )
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
+export const supabase = createClient(supabaseUrl, supabaseKey)
 // --- Type Mapping Helpers ---
 // These functions translate between the string representation used in the app
 // and a potential numeric representation in the database, fixing schema mismatches.
