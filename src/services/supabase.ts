@@ -112,6 +112,15 @@ export const deleteAccount = async (code: string) => {
     if (error) throw error;
 };
 
+// Helper function to generate a unique numeric ID.
+// This is used because some ID columns are 'bigint' and do not auto-increment.
+const generateNumericId = (): number => {
+    const timestamp = Date.now(); // 13 digits
+    const randomSuffix = Math.floor(Math.random() * 1000); // 3 digits
+    // Combine to form a 16-digit number, which is safely within JavaScript's MAX_SAFE_INTEGER limit.
+    return timestamp * 1000 + randomSuffix;
+};
+
 // --- Transactions API ---
 export const getTransactions = async () => {
     const { data, error } = await supabase.from('transactions').select('*, entries:journal_entries(*)').order('date', { ascending: false });
@@ -120,8 +129,9 @@ export const getTransactions = async () => {
 };
 
 export const createTransaction = async (transaction: Omit<Transaction, 'id' | 'entries'>, entries: Omit<JournalEntry, 'id' | 'transaction_id'>[]) => {
-    // BUG FIX: Generate a UUID on the client-side to satisfy the not-null constraint for the 'id' column.
-    const transactionWithId = { ...transaction, id: crypto.randomUUID() };
+    // BUG FIX: Generate a unique numeric ID on the client-side to satisfy the not-null constraint 
+    // for the 'id' column which is of type bigint. Using a UUID string caused a type error.
+    const transactionWithId = { ...transaction, id: generateNumericId() };
 
     const { data: transactionData, error: transactionError } = await supabase
         .from('transactions')
@@ -166,16 +176,21 @@ export const deleteTransaction = async (id: string) => {
 export const getAssets = async () => {
     const { data, error } = await supabase.from('assets').select('*').order('name');
     if (error) throw error;
+    // The screenshot confirms the column is 'accumulated_depreciation', so no mapping is needed.
     return data as Asset[];
 };
 
 export const createAsset = async (asset: Omit<Asset, 'id'>) => {
-    const { data, error } = await supabase.from('assets').insert([asset]).select();
+    // BUG FIX: Generate a unique numeric ID client-side for the 'bigint' primary key column.
+    const assetWithId = { ...asset, id: generateNumericId() };
+
+    const { data, error } = await supabase.from('assets').insert([assetWithId]).select();
     if (error) throw error;
     return data[0] as Asset;
 };
 
 export const updateAsset = async (id: string, updates: Partial<Asset>) => {
+    // No mapping needed as column name matches the app's type definition.
     const { data, error } = await supabase.from('assets').update(updates).eq('id', id).select();
     if (error) throw error;
     return data[0] as Asset;

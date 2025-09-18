@@ -43,8 +43,7 @@ const Login: React.FC = () => {
                     <h1 className="text-3xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
                         FinanceFlow Pro
                     </h1>
-                    <p className="text-gray-400 mt-2">Selamat Datang, Silahkan Login.</p>
-                    <p className="text-gray-400 mt-2">Bismillah.</p>
+                    <p className="text-gray-400 mt-2">Masukkan kredensial Anda untuk mengakses dasbor.</p>
                 </div>
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div>
@@ -89,7 +88,12 @@ const Login: React.FC = () => {
                             {isLoading ? 'Masuk...' : 'Masuk'}
                         </button>
                     </div>
-                </form>                
+                </form>
+                 <div className="text-center mt-6 text-sm text-gray-400">
+                    <p>Admin: admin@example.com / password</p>
+                    <p>Staff: staff@example.com / password</p>
+                    <p>Viewer: viewer@example.com / password</p>
+                </div>
             </Card>
         </div>
     );
